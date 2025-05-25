@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>NeonSnake</title>
+  <style>
+    /* --- STYLE DU JEU ET DES ÉLÉMENTS VISUELS --- */
+    body {
+      margin: 0;
+      background: radial-gradient(circle, #000000, #111111);
+      color: #00ffff;
+      font-family: 'Courier New', Courier, monospace;
+      overflow: hidden;
+    }
+
+    /* Écran de démarrage */
+    #start-screen {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      background: black;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 10;
+      transition: opacity 1s ease;
+    }
+
+    /* Fond animé avec planètes (non utilisé actuellement mais prévu) */
+    #planet-canvas {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    #start-screen h1 {
+      font-size: 4rem;
+      color: #00ffff;
+      text-shadow: 0 0 20px #00ffff;
+      margin-bottom: 2rem;
+      z-index: 2;
+    }
+
+    #start-button {
+      padding: 1rem 2rem;
+      font-size: 1.5rem;
+      color: #000;
+      background: #00ffff;
+      border: none;
+      border-radius: 1rem;
+      cursor: pointer;
+      box-shadow: 0 0 10px #00ffff;
+      transition: background 0.3s;
+      z-index: 2;
+    }
+
+    #start-button:hover {
+      background: #00cccc;
+    }
+
+    /* Affichage du score en haut à gauche */
+    #score {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      font-size: 1.5rem;
+      z-index: 5;
+      display: none;
+    }
+
+    /* Mini-carte en bas à droite */
+    #minimap {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      width: 150px;
+      height: 150px;
+      border: 2px solid #00ffff;
+      background: rgba(0,0,0,0.7);
+      z-index: 10;
+    }
+
+    /* Canvas principal du jeu avec effet néon */
+    canvas {
+      display: block;
+      border: 10px solid #00ffff;
+      box-shadow: 0 0 40px #00ffff;
+    }
+  </style>
+</head>
+<body>
+<!-- Écran de démarrage -->
+<div id="start-screen">
+  <canvas id="planet-canvas"></canvas>
+  <h1>NeonSnake</h1>
+  <button id="start-button">Jouer</button>
+</div>
+
+<!-- Score et interface -->
+<div id="score">Score: 0</div>
+<canvas id="gameCanvas"></canvas>
+<canvas id="minimap"></canvas>
+
+<!-- Écran de fin de partie -->
+<div id="game-over-screen" style="display: none; position: absolute; top: 0; left: 0; 
+  width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 10;
+  display: flex; justify-content: center; align-items: center; flex-direction: column;">
+  <h2 style="color: #00ffff; font-size: 3rem; margin-bottom: 2rem;">Game Over</h2>
+  <button id="replay-button" style="padding: 1rem 2rem; font-size: 1.5rem; 
+    background: #00ffff; color: #000; border: none; border-radius: 1rem; 
+    box-shadow: 0 0 15px #00ffff; cursor: pointer;">Rejouer</button>
+</div>
+
+<script>
+// Création de l'audio
+const backgroundMusic = new Audio('assets/neon-gaming.mp3');
+backgroundMusic.loop = true;
+backgroundMusic.volume = 0.5; // Facultatif : volume entre 0 et 1
+
+
+  // Initialisation du canvas principal et de la mini-carte
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  const minimap = document.getElementById('minimap');
+  const minimapCtx = minimap.getContext('2d');
+
+  // Définition du monde
+  const worldWidth = 5000;
+  const worldHeight = 5000;
+
+  // Variables globales
+  let camera = { x: 0, y: 0 };
+  const snake = [{ x: worldWidth / 2, y: worldHeight / 2 }]; // Serpent commence au centre
+  let score = 0;
+  let orbs = [];
+  let gameRunning = false;
+  const orbCount = 150; // Nombre total d’orbes sur la carte
+
+  let lastDirection = { dx: 1, dy: 0 }; // Pour le mouvement des yeux
+
+  // Fonction de création d’orbe (bonus ou normal)
+  function createOrb(bonus = false) {
+    return {
+      x: Math.random() * worldWidth,
+      y: Math.random() * worldHeight,
+      radius: bonus ? 15 : 5 + Math.random() * 5,
+      bonus: bonus,
+      shape: bonus ? 'star' : 'circle'
+    };
+  }
+
+  // Création initiale des orbes
+  for (let i = 0; i < orbCount; i++) {
+    orbs.push(createOrb(Math.random() < 0.1)); // 10% d’étoiles bonus
+  }
+
+   // Gestion souris ET tactile
+  let mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+  let isTouching = false;
+
+  // Souris (desktop)
+  document.addEventListener('mousemove', e => {
+    if (!isTouching) {
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
+    }
+  });
+
+  // Touches (mobile)
+  canvas.addEventListener('touchstart', e => {
+    isTouching = true;
+    if (e.touches.length > 0) {
+      const touch = e.touches[0];
+      mouse.x = touch.clientX;
+      mouse.y = touch.clientY;
+    }
+  });
+
+  canvas.addEventListener('touchmove', e => {
+    if (e.touches.length > 0) {
+      const touch = e.touches[0];
+      mouse.x = touch.clientX;
+      mouse.y = touch.clientY;
+    }
+  });
+
+  canvas.addEventListener('touchend', () => {
+    isTouching = false;
+  });
+
+  // Démarrage de la musique à la première interaction
+function startMusicOnce() {
+  backgroundMusic.play().catch(e => console.log("Audio bloqué :", e));
+  document.removeEventListener('click', startMusicOnce);
+  document.removeEventListener('touchstart', startMusicOnce);
+}
+document.addEventListener('click', startMusicOnce);
+document.addEventListener('touchstart', startMusicOnce);
+
+
+  // Mini-carte (vue réduite du monde)
+  function drawMinimap() {
+    minimapCtx.clearRect(0, 0, minimap.width, minimap.height);
+    const scaleX = minimap.width / worldWidth;
+    const scaleY = minimap.height / worldHeight;
+
+    minimapCtx.fillStyle = '#00ffff';
+    const head = snake[0];
+    minimapCtx.beginPath();
+    minimapCtx.arc(head.x * scaleX, head.y * scaleY, 5, 0, Math.PI * 2);
+    minimapCtx.fill();
+  }
+
+  // Bordures rouges/blanches du monde
+  function drawBarrier() {
+    ctx.strokeStyle = "red";
+    ctx.lineWidth = 30;
+    ctx.setLineDash([20, 20]);
+    ctx.strokeRect(-camera.x, -camera.y, worldWidth, worldHeight);
+    ctx.setLineDash([]);
+  }
+
+  // Fonction de dessin d’étoile bonus (supernova scintillante)
+  function drawStar(x, y, radius, spikes, outerRadius, innerRadius, color) {
+    let rot = Math.PI / 2 * 3;
+    let step = Math.PI / spikes;
+    ctx.beginPath();
+    ctx.moveTo(x, y - outerRadius);
+    for (let i = 0; i < spikes; i++) {
+      ctx.lineTo(x + Math.cos(rot) * outerRadius, y + Math.sin(rot) * outerRadius);
+      rot += step;
+      ctx.lineTo(x + Math.cos(rot) * innerRadius, y + Math.sin(rot) * innerRadius);
+      rot += step;
+    }
+    ctx.lineTo(x, y - outerRadius);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 20;
+    ctx.globalAlpha = 0.8 + Math.random() * 0.2; // Scintillement
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+  }
+
+  // --- Fonction principale de dessin ---
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const head = { ...snake[0] };
+    // Game Over si on touche les bords
+    if (head.x < 0 || head.x > worldWidth || head.y < 0 || head.y > worldHeight) {
+      gameRunning = false;
+      restartGame();
+      return;
+    }
+
+    // Mouvement du serpent vers la souris
+    const worldMouseX = camera.x + mouse.x;
+    const worldMouseY = camera.y + mouse.y;
+    const dx = worldMouseX - head.x;
+    const dy = worldMouseY - head.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const speed = 2.0;
+    head.x += (dx / dist) * speed;
+    head.y += (dy / dist) * speed;
+    snake.unshift(head);
+
+    if (dist > 0) {
+      lastDirection.dx = dx / dist;
+      lastDirection.dy = dy / dist;
+    }
+
+    // Taille du serpent en fonction du score
+    while (snake.length > 50 + score) snake.pop();
+
+    // Collision avec orbes
+    orbs = orbs.filter(orb => {
+      const d = Math.hypot(orb.x - head.x, orb.y - head.y);
+      if (d < orb.radius + 10) {
+        score += orb.bonus ? 5 : 1;
+        document.getElementById('score').textContent = 'Score: ' + score;
+        return false; // Supprimer orbe mangé
+      }
+      return true;
+    });
+
+    // Recréer des orbes si certains ont été mangés
+    while (orbs.length < orbCount) orbs.push(createOrb(Math.random() < 0.1));
+
+    // Centrage caméra sur tête du serpent
+    camera.x = head.x - canvas.width / 2;
+    camera.y = head.y - canvas.height / 2;
+
+    // Fond léger transparent
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    drawBarrier();
+
+    // Dessiner chaque orbe
+    orbs.forEach(orb => {
+      if (orb.shape === 'star') {
+        drawStar(orb.x - camera.x, orb.y - camera.y, orb.radius, 8, orb.radius, orb.radius / 2, '#ff00ff');
+      } else {
+        ctx.beginPath();
+        ctx.arc(orb.x - camera.x, orb.y - camera.y, orb.radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#00ffff';
+        ctx.shadowColor = '#00ffff';
+        ctx.shadowBlur = 10;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    });
+
+    // Dessiner le serpent (corps multicolore)
+    const snakeRadius = 14;
+    snake.forEach((seg, i) => {
+      ctx.beginPath();
+      ctx.arc(seg.x - camera.x, seg.y - camera.y, snakeRadius, 0, Math.PI * 2);
+      ctx.fillStyle = `hsl(${(i * 10 + score * 5) % 360}, 100%, 50%)`;
+      ctx.shadowColor = '#fff';
+      ctx.shadowBlur = 10;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Tête du serpent avec yeux + bouche
+      if (i === 0) {
+        const eyeRadius = 12;
+        const eyeOffsetX = 14;
+        const eyeOffsetY = -14;
+        const angle = Math.atan2(lastDirection.dy, lastDirection.dx);
+        const pupilOffset = 4;
+
+        // Yeux blancs
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(seg.x - eyeOffsetX - camera.x, seg.y + eyeOffsetY - camera.y, eyeRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(seg.x + eyeOffsetX - camera.x, seg.y + eyeOffsetY - camera.y, eyeRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Pupilles noires
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.arc(seg.x - eyeOffsetX + Math.cos(angle) * pupilOffset - camera.x, seg.y + eyeOffsetY + Math.sin(angle) * pupilOffset - camera.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(seg.x + eyeOffsetX + Math.cos(angle) * pupilOffset - camera.x, seg.y + eyeOffsetY + Math.sin(angle) * pupilOffset - camera.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Petite bouche
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(seg.x - 6 - camera.x, seg.y + 16 - camera.y);
+        ctx.lineTo(seg.x + 6 - camera.x, seg.y + 16 - camera.y);
+        ctx.stroke();
+      }
+    });
+
+    drawMinimap();
+  }
+
+  // Affichage de l’écran Game Over
+  function restartGame() {
+    gameRunning = false;
+    document.getElementById('game-over-screen').style.display = 'flex';
+  }
+
+  // Boucle principale du jeu
+  function loop() {
+    if (!gameRunning) return;
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // Bouton démarrer
+  document.getElementById("start-button").addEventListener("click", () => {
+    document.getElementById("start-screen").style.opacity = "0";
+    setTimeout(() => {
+      document.getElementById("start-screen").style.display = "none";
+      document.getElementById("score").style.display = "block";
+      gameRunning = true;
+      loop();
+    }, 1000);
+  });
+
+  // Bouton rejouer après Game Over
+  document.getElementById("replay-button").addEventListener("click", () => {
+    document.getElementById("game-over-screen").style.display = "none";
+    snake.length = 0;
+    snake.push({ x: worldWidth / 2, y: worldHeight / 2 });
+    score = 0;
+    orbs = [];
+    for (let i = 0; i < orbCount; i++) orbs.push(createOrb(Math.random() < 0.1));
+    document.getElementById('score').textContent = 'Score: 0';
+    gameRunning = true;
+    loop();
+  });
+</script>
+</body>
+</html>
